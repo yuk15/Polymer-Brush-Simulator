@@ -1,0 +1,128 @@
+ # LAMMPS input file
+# Star Polymer in solution
+
+# ----- Variables -----
+
+variable K equal 30.0
+variable R0 equal 1.0
+
+variable fname string 1
+variable step equal 100000
+variable dt equal 0.001
+variable ptarget equal 0.1
+variable shear_rate equal 40.0
+
+# ----- Initialisation -----
+
+units 			lj								# sets timestep to _ fs by default
+boundary 		p p p			#f is fixed s is shrink wrapped and it might be fs
+atom_style 		full
+log 			log.${fname}.txt
+timestep 		${dt}
+
+# ----- Force Fields Style-----
+
+bond_style 		harmonic 					
+pair_style lj/cut 2.5	
+
+# ----- Atom Definition -----
+
+read_data 		config_both-${fname}.dat
+
+# ----- Force Fields ----- Changed
+
+bond_coeff 		* ${K} ${R0}
+
+pair_coeff * * 1.0 1.0 2.5
+# 1 are the beads in the polymer
+# 2 are the beads in the upper surface
+# 3 are the beads in the lower surface
+pair_coeff 1 1 1.0 1.0 2.5
+#pair_coeff 1 2 1.0 0.75 0.84
+#pair_coeff 1 3 1.0 0.75 0.84
+pair_coeff 2 2 100.0 0.5 0.8
+pair_coeff 2 5 100.0 0.5 0.8
+pair_coeff 5 5 100.0 0.5 0.8
+#pair_coeff 2 3 5.0 0.5 0.56124
+pair_coeff 3 3 100.0 0.5 0.8
+pair_coeff 3 4 100.0 0.5 0.8
+pair_coeff 4 4 100.0 0.5 0.8
+
+# ----- Equilibration ----- 
+
+group brush type 1
+group bot_bulk type 2
+group top_bulk type 3
+group bot type 4
+group top type 5
+
+compute upperf brush group/group top_bulk
+compute lowerf brush group/group bot_bulk
+compute mytemp all temp
+compute mypress all pressure mytemp
+compute gap_energy top_bulk group/group bot_bulk
+compute myRDF brush rdf 100 
+
+thermo 		    1000 
+thermo_style 	custom step pe ke lx ly lz press pxx pyy pzz temp
+
+# Store final cell length for strain calculations
+variable tmp equal "lz"
+variable L0 equal ${tmp}
+variable T  equal "temp"
+variable etol equal "etotal"
+print "Initial Length, L0: ${L0}"
+variable strain equal "(lz - v_L0)/v_L0"
+variable p1 equal "v_strain"
+variable p2 equal "-pxx"
+variable p3 equal "-pyy"
+variable p4 equal "-pzz"
+
+fix def1 all print 10000 "${T} ${etol}" file thermo.{fname}.out screen no
+fix def2 all print 10000 "${L0} ${p1} ${p2} ${p3} ${p4}" file ss.${fname}.out screen no
+fix rdf brush ave/time 100000 1 100000 c_myRDF[*] file tmp.rdf mode vector
+fix friction1 all ave/time 50000 1 50000 c_upperf[*] file upperf.rdf mode vector
+fix friction2 all ave/time 50000 1 50000 c_lowerf[*] file lowerf.rdf mode vector
+dump 			1 all custom ${step} dump.${fname}.* id type x y z q vx vy vz mol ix iy iz fx fy fz
+#dump 			1 all custom ${step} dumpfile id type x y z q vx vy vz mol ix iy iz fx fy fz
+
+# ----- Press -----
+reset_timestep 	0
+
+fix              1 all npt temp 1.0 1.0 $(100*dt) z 0.0 ${ptarget} $(1000*dt)
+run 100000
+unfix 1
+
+fix              2 all npt temp 1.0 1.0 $(100*dt) z ${ptarget} ${ptarget} $(1000*dt)
+run 100000
+unfix 2
+
+# ----- Equilibration -----
+
+fix             3 all langevin 1.0 1.0 66.67 6994
+
+min_style cg
+minimize 1e-15 1e-15 500000 1000000
+
+run 50000
+unfix 3
+
+# ----- Apply Pressure + Shear -----
+
+fix              4 all npt temp 1.0 1.0 $(100*dt) z ${ptarget} ${ptarget} $(1000*dt)
+
+velocity         top set ${shear_rate} NULL NULL units box sum yes             ### set force and velocity (final velocity?) ###
+velocity         bot set -${shear_rate} NULL NULL units box sum yes
+
+fix              5 bot setforce 0.0 NULL NULL 
+fix              6 top setforce 0.0 NULL NULL        
+
+run 1000000
+
+unfix 4
+unfix 5
+unfix 6
+
+#finished
+
+print 			"All Done"
