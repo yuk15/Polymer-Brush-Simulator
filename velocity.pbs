@@ -4,12 +4,12 @@
 module load lammps/2018-12-12
 
 # copy files here
-cp ${PBS_O_WORKDIR}/Stefano.in .
+cp ${PBS_O_WORKDIR}/LAMMPS.in .
 cp ${PBS_O_WORKDIR}/config_both-${PBS_ARRAY_INDEX}.dat .
 
 # Run simulations
 
-sed -i '9s/.*/variable fname string '${PBS_ARRAY_INDEX}'/' Stefano.in
+sed -i '9s/.*/variable fname string '${PBS_ARRAY_INDEX}'/' LAMMPS.in
 lmp -sf gpu -pk gpu 1 -in Stefano.in >> temp.delete
 tar czf exp.dump.tar.gz dump.* >> temp.delete 
 
